@@ -1,4 +1,23 @@
 const API_URL = 'http://localhost:3001/api';
+const socket = io();
+
+// Socket event listeners for real-time installation feedback
+socket.on('install_queued', (data) => {
+    notify(`APK Queued: ${data.fileName} for ${data.deviceId}`, 'info');
+});
+
+socket.on('install_started', (data) => {
+    notify(`Installation Started: ${data.fileName} on ${data.deviceId}`, 'info');
+});
+
+socket.on('install_success', (data) => {
+    notify(`Success: ${data.fileName} installed on ${data.deviceId}`, 'success');
+    loadDeviceApps(); // Refresh the list if it's the active device
+});
+
+socket.on('install_error', (data) => {
+    notify(`Error: Failed to install ${data.fileName} on ${data.deviceId}: ${data.error}`, 'danger');
+});
 
 async function refreshDevices() {
     showLoading(true);
@@ -129,8 +148,7 @@ async function installApk() {
     const formData = new FormData();
     formData.append('apk', fileInput.files[0]);
 
-    showLoading(true);
-    notify('Uploading and installing APK...');
+    notify('Uploading APK to queue...');
 
     try {
         const response = await fetch(`${API_URL}/device/${id}/install`, {
@@ -139,16 +157,13 @@ async function installApk() {
         });
         const data = await response.json();
         if (data.success) {
-            notify('Installation successful', 'success');
             fileInput.value = '';
-            loadDeviceApps();
+            // Notification will come via Socket.io
         } else {
             throw new Error(data.error);
         }
     } catch (err) {
-        notify('Installation failed: ' + err.message, 'danger');
-    } finally {
-        showLoading(false);
+        notify('Upload failed: ' + err.message, 'danger');
     }
 }
 

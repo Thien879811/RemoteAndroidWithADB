@@ -8,6 +8,10 @@ const path = require('path');
 const multer = require('multer');
 
 const app = express();
+const http = require('http').createServer(app);
+const io = require('socket.io')(http, {
+    cors: { origin: "*" }
+});
 const port = 3001;
 const adb = Adb.createClient();
 
@@ -37,6 +41,54 @@ loadNames();
 app.use(cors());
 app.use(bodyParser.json());
 app.use(express.static('../client'));
+
+// Installation Queue Logic
+class InstallationQueue {
+    constructor() {
+        this.queue = [];
+        this.processing = false;
+    }
+
+    async add(id, apkPath, originalName) {
+        const jobId = Math.random().toString(36).substr(2, 9);
+        this.queue.push({ jobId, id, apkPath, originalName });
+
+        io.emit('install_queued', { jobId, deviceId: id, fileName: originalName });
+
+        if (!this.processing) {
+            this.processNext();
+        }
+        return jobId;
+    }
+
+    async processNext() {
+        if (this.queue.length === 0) {
+            this.processing = false;
+            return;
+        }
+
+        this.processing = true;
+        const job = this.queue.shift();
+        const { jobId, id, apkPath, originalName } = job;
+
+        try {
+            io.emit('install_started', { jobId, deviceId: id, fileName: originalName });
+            console.log(`[Queue] Installing ${originalName} on ${id}...`);
+            await adb.install(id, apkPath);
+
+            io.emit('install_success', { jobId, deviceId: id, fileName: originalName });
+            console.log(`[Queue] Success: ${originalName} on ${id}`);
+        } catch (err) {
+            io.emit('install_error', { jobId, deviceId: id, fileName: originalName, error: err.message });
+            console.error(`[Queue] Error: ${originalName} on ${id}:`, err.message);
+        } finally {
+            if (fs.existsSync(apkPath)) fs.unlinkSync(apkPath);
+            this.processNext();
+        }
+    }
+}
+
+const installQueue = new InstallationQueue();
 
 // Get list of devices
 app.get('/api/devices', async (req, res) => {
@@ -311,23 +363,23 @@ app.post('/api/device/:id/uninstall', async (req, res) => {
     }
 });
 
-// Install App (APK Upload)
+// Install App (Async Queue)
 app.post('/api/device/:id/install', upload.single('apk'), async (req, res) => {
     const { id } = req.params;
     if (!req.file) return res.status(400).json({ error: 'APK file is required' });
 
     const apkPath = req.file.path;
+    const originalName = req.file.originalname;
+
     try {
-        await adb.install(id, apkPath);
-        // Cleanup file
-        fs.unlinkSync(apkPath);
-        res.json({ success: true, message: 'App installed successfully' });
+        const jobId = await installQueue.add(id, apkPath, originalName);
+        res.json({ success: true, jobId, message: 'Installation queued' });
     } catch (err) {
         if (fs.existsSync(apkPath)) fs.unlinkSync(apkPath);
         res.status(500).json({ error: err.message });
     }
 });
 
-app.listen(port, () => {
+http.listen(port, () => {
     console.log(`ADB Bridge listening at http://localhost:${port}`);
 });

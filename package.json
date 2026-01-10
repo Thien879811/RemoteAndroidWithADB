@@ -1,8 +1,9 @@
 {
-    "name": "android-remote",
-    "version": "1.0.0",
-    "scripts": {
-        "start": "npm run start --prefix server",
-        "dev": "npm run dev --prefix server"
-    }
+  "name": "android-remote",
+  "version": "1.0.0",
+  "scripts": {
+    "start": "npm run start --prefix server",
+    "dev": "npm run dev --prefix server",
+    "preinstall": "node preinstall.js"
+  }
 }
