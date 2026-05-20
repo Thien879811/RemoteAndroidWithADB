@@ -93,7 +93,11 @@ async function loadDeviceApps() {
                 item.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 0.5rem; border-bottom: 1px solid rgba(255,255,255,0.05);';
                 item.innerHTML = `
                             <span style="font-size: 0.85rem; color: var(--text-dim);">${pkg}</span>
-                            <button class="btn-disconnect" style="padding: 4px 10px; font-size: 10px;" onclick="uninstallApp('${id}', '${pkg}')">Uninstall</button>
+                            <div style="display: flex; gap: 0.5rem;">
+                                <button style="padding: 4px 10px; font-size: 10px; background: rgba(34, 211, 238, 0.1); border: 1px solid var(--accent); color: var(--accent); border-radius: 4px; cursor: pointer;" onclick="restartApp('${id}', '${pkg}')">Restart</button>
+                                <button style="padding: 4px 10px; font-size: 10px; background: rgba(16, 185, 129, 0.1); border: 1px solid var(--success, #10b981); color: var(--success, #10b981); border-radius: 4px; cursor: pointer;" onclick="restartAppOnAllDevices('${pkg}')">Restart All</button>
+                                <button class="btn-disconnect" style="padding: 4px 10px; font-size: 10px;" onclick="uninstallApp('${id}', '${pkg}')">Uninstall</button>
+                            </div>
                         `;
                 list.appendChild(item);
             });
@@ -137,6 +141,67 @@ async function uninstallApp(id, pkg) {
         }
     } catch (err) {
         notify('Uninstall failed', 'danger');
+    }
+}
+
+async function restartApp(id, pkg) {
+    notify(`Restarting ${pkg}...`);
+    try {
+        const response = await fetch(`${API_URL}/device/${id}/restart-app`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ packageName: pkg })
+        });
+        const data = await response.json();
+        if (data.success) {
+            notify('App restarted successfully', 'success');
+        } else {
+            throw new Error(data.error);
+        }
+    } catch (err) {
+        notify('Restart failed: ' + err.message, 'danger');
+    }
+}
+
+async function restartAppOnAllDevices(pkg) {
+    if (!confirm(`Restart ${pkg} on ALL connected devices?`)) return;
+    
+    try {
+        const response = await fetch(`${API_URL}/devices`);
+        const devices = await response.json();
+        
+        const activeDevices = devices.filter(d => d.type === 'device');
+        if (activeDevices.length === 0) {
+            notify('No active devices connected', 'danger');
+            return;
+        }
+
+        notify(`Restarting ${pkg} on ${activeDevices.length} devices...`);
+        
+        let successCount = 0;
+        let failCount = 0;
+
+        for (const device of activeDevices) {
+            try {
+                const res = await fetch(`${API_URL}/device/${device.id}/restart-app`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ packageName: pkg })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    successCount++;
+                } else {
+                    failCount++;
+                }
+            } catch (err) {
+                failCount++;
+            }
+        }
+        
+        notify(`Restart complete: ${successCount} success, ${failCount} failed`, failCount === 0 ? 'success' : 'info');
+    } catch (err) {
+        notify('Failed to get devices list: ' + err.message, 'danger');
     }
 }
 

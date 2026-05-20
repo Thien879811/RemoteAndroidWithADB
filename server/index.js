@@ -363,6 +363,28 @@ app.post('/api/device/:id/uninstall', async (req, res) => {
     }
 });
 
+// Restart App
+app.post('/api/device/:id/restart-app', async (req, res) => {
+    const { id } = req.params;
+    const { packageName } = req.body;
+    if (!packageName) return res.status(400).json({ error: 'Package name is required' });
+
+    try {
+        // Force stop the app
+        await adb.shell(id, `am force-stop ${packageName}`);
+        
+        // Wait a brief moment to ensure the app is fully stopped
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Start the app using monkey
+        await adb.shell(id, `monkey -p ${packageName} -c android.intent.category.LAUNCHER 1`);
+        
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 // Install App (Async Queue)
 app.post('/api/device/:id/install', upload.single('apk'), async (req, res) => {
     const { id } = req.params;
